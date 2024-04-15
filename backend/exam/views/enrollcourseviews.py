@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import generics
+from exam.models.coremodels import User
 from custom_authentication.custom_mixins import ClientAdminMixin, ClientMixin
 from exam.models.allmodels import (
     Course,
@@ -31,14 +32,12 @@ from django.views.generic import (
     FormView,
     UpdateView,
 )
-from exam.forms import (
-    QuestionForm,
-)
+
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, render, redirect
 from django.utils.decorators import method_decorator
 
-from exam.serializers.enrollcourseserializers import (
+from  exam.serializers.enrollcourseserializers import (
     AssignCourseEnrollmentSerializer, 
     CourseEnrollmentSerializer,
     DisplayCourseEnrollmentSerializer,
@@ -48,7 +47,7 @@ from exam.serializers.enrollcourseserializers import (
     UnAssignCourseEnrollmentSerializer, 
     UserSerializer
 )
-from exam.models.coremodels import *
+from exam.models import *
 
 # for enrollment feature
 # will be displayed to employer/client-admin only
@@ -58,39 +57,19 @@ class RegisteredCourseListView(APIView,ClientAdminMixin):
         view to display courses that are registered for that customer, whose's id is owned by user in request.
         trigger with GET request
         should be allowed for only [client-admin ].
-       
-        table : CourseRegisterRecord, Courses
-       
-        what will be displayed:
-                    id
-                    title
-                    updated_at # to see how old is this course
-                    original_course [title to be extracted on frontend]
-                    version_number
     """
-    '''
-    how will we do it ?
-            first extract user from request and then extract it's customer id
-            filter CourseRegisterRecord with that customer id     TODO :[and active to be True]
-            make list of courses that are filtered
-            get the instances of Courses whose id is in list.
-    '''
     def get(self, request, format=None):
         try:
-            # Extract customer ID from request headers
-            user_header = request.headers.get("user")
-            if user_header:
-                user_data = json.loads(user_header)
-                role_id = user_data.get("role")
-            else:
-                return Response({"error": "User role not found in headers."}, status=status.HTTP_400_BAD_REQUEST)
+            # Extract customer ID from the request body
+            customer_id = request.data.get("customer_id")
+            if not customer_id:
+                return Response({"error": "Customer ID is required in the request body."}, status=status.HTTP_400_BAD_REQUEST)
 
             # Check if the user has client admin privileges
             if not self.has_client_admin_privileges(request):
                 return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
             # Filter CourseRegisterRecord with customer ID and active status
-            customer_id = user_data.get("customer")
             course_register_records = CourseRegisterRecord.objects.filter(customer=customer_id, active=True)
 
             # Check if courses exist
@@ -114,62 +93,29 @@ class RegisteredCourseListView(APIView,ClientAdminMixin):
                 return Response({"error": "Validation Error: " + str(e)}, status=status.HTTP_400_BAD_REQUEST)
             else:
                 return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    """
-        RESULT AFTER TESTING API
-        IN HEADER: 
-        Key: user
-        Value: {"id ":1 ,"first_name":"Hanks","last_name":"Doe","customer":1}
-        
-        RESPONSE:
-        [
-    {
-        "id": 1,
-        "title": "Java",
-        "updated_at": "2024-03-24",
-        "version_number": 1
-    }
-]
-    """
           
 class UserListForEnrollmentView(APIView, ClientAdminMixin):
     """
     
     view to display data about list of user which have customer id same as that of user in request.
     trigger with GET request
-    should be allowed for only [Client Admin].
-    
-    table : User
-    what will be displayed:
-                    id, first_name, last_name, status
-                    
+    should be allowed for only [Client Admin].            
     """
-    '''
-        what will happen:
-                    user will be extracted from request
-                    user's customer_id will be retrieved then
-                    CourseRegisterRecord will be filtered on the basis of this customer_id
-                    and list of course_ids will be made
-                    list of course_ids will be used to retrieve the list of course titles associated with it from course table.
-    '''
+
     def get(self, request, format=None):
         try:
-            # Extract customer ID from the request headers
-            user_header = request.headers.get("user")
-            if not user_header:
-                return Response({"error": "User data not found in headers."}, status=status.HTTP_400_BAD_REQUEST)
-            user_data = json.loads(user_header)
-            customer_id = user_data.get("customer")
-
             # Check if the user has client admin privileges
             if not self.has_client_admin_privileges(request):
                 return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
-
+            
+            # Extract customer ID from the request body
+            customer_id = request.data.get("customer_id")
             if not customer_id:
-                return Response({"error": "Customer ID header is missing."}, status=status.HTTP_400_BAD_REQUEST)
-
+                return Response({"error": "Customer ID is missing in the request body."}, status=status.HTTP_400_BAD_REQUEST)
+            
             # Filter users based on the provided customer ID
             users = User.objects.filter(customer__id=customer_id)
-            if not users:  # If no users found, return error
+            if not users:
                 return Response({"error": "No users found for the given customer ID."}, status=status.HTTP_404_NOT_FOUND)
 
             # Serialize the user data
@@ -178,40 +124,14 @@ class UserListForEnrollmentView(APIView, ClientAdminMixin):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    """
-        RESULT AFTER TESTING API
-        IN HEADER: 
-        Key: user
-        Value: {"customer":1}
-        
-        RESPONSE:
-    [
-        {
-            "id": 1,
-            "first_name": "Hanks",
-            "last_name": "Doe",
-            "status": "active"
-        }
-    ]
-        """
-
 
 class CreateCourseEnrollmentView(APIView, ClientAdminMixin):
-    
+ 
     """
         view to create instances in CourseEnrollment.
         trigger with POST request
         should be allowed for only [Client Admin].
-       
-
-        table : CourseEnrollment
-       
-        in request body :
-                        list of course_id =[..., ..., ..., ...]
-                        list of user_id =[..., ..., ..., ...]
-        in response body :
-                        each course in list will be mapped for all users in list inside CourseEnrollment table
-                        by default active will be true
+    
     """
     
     def post(self, request, *args, **kwargs):
@@ -220,15 +140,14 @@ class CreateCourseEnrollmentView(APIView, ClientAdminMixin):
             if not self.has_client_admin_privileges(request):
                 return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
-            # Extract course_ids and user_ids from request data
-            course_ids = request.data.get("course_ids", [])
-            user_ids = request.data.get("user_ids", [])
+            # Validate request data using the serializer
+            serializer = CourseEnrollmentSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            # Validate request data
-            if not course_ids:
-                return Response({"error": "Course IDs are missing."}, status=status.HTTP_400_BAD_REQUEST)
-            if not user_ids:
-                return Response({"error": "User IDs are missing."}, status=status.HTTP_400_BAD_REQUEST)
+            # Extract validated course_ids and user_ids from serializer data
+            course_ids = serializer.validated_data.get("course_ids")
+            user_ids = serializer.validated_data.get("user_ids")
 
             # Lists to hold created enrollments, existing records, and all records
             enrollments = []
@@ -241,13 +160,24 @@ class CreateCourseEnrollmentView(APIView, ClientAdminMixin):
             for course_id in course_ids:
                 for user_id in user_ids:
                     # Check if enrollment already exists
-                    if CourseEnrollment.objects.filter(course_id=course_id, user_id=user_id).exists():
-                        # Return a response indicating that the enrollment already exists
-                        existing_record = {
-                            "course_id": course_id,
-                            "user_id": user_id
-                        }
-                        existing_records.append(existing_record)
+                    record = CourseEnrollment.objects.filter(course_id=course_id, user_id=user_id).first()
+                    if record:
+                        # Update active status if False
+                        if not record.active:
+                            record.active = True
+                            record_data = {
+                                "id": record.id,
+                                "course": record.course.id,
+                                "active": record.active
+                            }
+                            existing_records.append(record_data)
+                        else:
+                            record_data = {
+                                "id": record.id,
+                                "course": record.course.id,
+                                "active": record.active
+                            }
+                            existing_records.append(record_data)
                         continue  # Move to the next iteration
 
                     # Create a new enrollment
@@ -268,43 +198,7 @@ class CreateCourseEnrollmentView(APIView, ClientAdminMixin):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    """
-        RESULT AFTER TESTING API
-        REQUEST BODY:
- {
-    "course_ids": [2],
-    "user_ids": [1]
-}
-
         
-    RESPONSE:
-        {
-    "message": "Course enrollments have been created successfully.",
-    "enrollments": [],
-    "existing_records": [
-        {
-            "course_id": 2,
-            "user_id": 1
-        }
-    ],
-    "all_records": [
-        {
-            "id": 1,
-            "user_id": 1,
-            "course_id": 2,
-            "enrolled_at": "2024-04-08T06:50:13.204005Z",
-            "updated_at": "2024-04-08T06:50:13.204005Z",
-            "active": true,
-            "deleted_at": null
-        },
-        {
-            "course_id": 2,
-            "user_id": 1
-        }
-    ]
-}
-     """    
-     
 class DisplayCourseEnrollmentView(APIView, ClientAdminMixin):
     """
     View to display all instances of CourseEnrollment Table.
@@ -314,12 +208,24 @@ class DisplayCourseEnrollmentView(APIView, ClientAdminMixin):
 
     def get(self, request, format=None):
         try:
+            # Extract user data from the request body
+            user_data = request.data.get("user")
+            if not user_data:
+                return Response({"error": "User data not found in the request body."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Extract the role from the user data
+            role = user_data.get("role")
+
             # Check if the user has client admin privileges
             if not self.has_client_admin_privileges(request):
                 return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
             # Get all instances of CourseEnrollment
             enrollments = CourseEnrollment.objects.all()
+
+            # Filter enrollments based on the role if provided
+            if role is not None:
+                enrollments = enrollments.filter(user__role=role)
 
             # Check if there are any enrollments
             if not enrollments.exists():
@@ -332,23 +238,7 @@ class DisplayCourseEnrollmentView(APIView, ClientAdminMixin):
         except (CourseEnrollment.DoesNotExist, DatabaseError, ValidationError) as error:
             error_message = "An error occurred: " + str(error)
             return Response({"error": error_message}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-    """
-    RESULT AFTER TESTING API
-        
-    RESPONSE:
-[
-    {
-        "user": 1,
-        "user_first_name": "Mary",
-        "user_last_name": "James",
-        "course_title": "Python",
-        "active": true
-    }
-]
-]
-    """    
-        
+
 class UnAssignCourseEnrollmentView(APIView, ClientAdminMixin):
     """
     this API is used to unassign course to specified user(s) by turning the active false , and hide visibility of course to user(s).
@@ -397,35 +287,13 @@ class UnAssignCourseEnrollmentView(APIView, ClientAdminMixin):
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    """
-        RESULT AFTER TESTING API
-        REQUEST BODY:
-    {
-        "enrollment_ids": [
-            "3"
-                        ]
-    }       
-            RESPONSE:
-            {
-        "message": "Courses unassigned successfully.",
-        "updated_enrollments": [
-            3
-        ]
-    }
-    
-    """    
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
 
 class AssignCourseEnrollmentView(APIView, ClientAdminMixin):
     """
     this API is used to assign course to specified user(s) for all users in courseenrollment table who have active false
     in request body : list of ids of instance of course enrollment table
     
-    Method: POST
-    Parameters:
-        - enrollment_ids (list of integers): IDs of course enrollment instances to assign, who have active status false for now
-    
-    It is triggered with POST request.
     
     """
     def post(self, request, *args, **kwargs):
@@ -470,28 +338,10 @@ class AssignCourseEnrollmentView(APIView, ClientAdminMixin):
 
         except Exception as e:
             return Response({'error': 'An unexpected error occurred'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    """
-        RESULT AFTER TESTING API
-        
-        REQUEST BODY:
-       {
-    "enrollment_ids": [
-        "3"
-    ]
-    }
-        
-        RESPONSE:
-    {
-        "message": "Course(s) assigned successfully",
-        "updated_count": 1
-    }
-    
-    """  
-        
+
 class EnrolledCoursesListDisplayView(APIView, ClientMixin):
     """  
     trigger with GET request
-    table : CourseEnrollment
     should be allowed for only [Client].
     GET Request 
     this view is so that the client can see their enrolled courses
@@ -513,51 +363,4 @@ class EnrolledCoursesListDisplayView(APIView, ClientMixin):
         
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    """ 
-    IN HEADER: KEY:User, Value:1
-    RESPONSE:
-    [
-    {
-        "id": 3,
-        "course": 4,
-        "enrolled_at": "2024-04-08T06:54:45.492018Z",
-        "updated_at": "2024-04-08T06:54:45.492018Z",
-    }
-]
-    
-    """
 
-class DeleteEnrollmentView(APIView, ClientAdminMixin):
-    """ 
-    Trigger with POST request to delete a course enrollment.
-    Table: CourseEnrollment
-    Should be allowed for only [Client Admin].
-    This view allows the client admin to delete a client from a certain course.
-    url : course_id
-    """
-
-    def post(self, request, enrollment_id, format=None):
-        try:
-            # Check if the user has client admin privileges
-            if not self.has_client_admin_privileges(request):
-                return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
-            
-            # Check if the enrollment exists
-            enrollment = CourseEnrollment.objects.get(pk=enrollment_id)
-        except CourseEnrollment.DoesNotExist:
-            return Response({"error": "Course enrollment not found."}, status=status.HTTP_404_NOT_FOUND)
-        
-        try:
-            # Check if the enrollment is already soft-deleted
-            if enrollment.deleted_at:
-                return Response({"error": "Course enrollment is already deleted."}, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Soft delete the enrollment
-            enrollment.deleted_at = timezone.now()
-            enrollment.active = False
-            enrollment.save()
-
-            return Response({"message": "Course enrollment deleted successfully."}, status=status.HTTP_200_OK)
-        
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

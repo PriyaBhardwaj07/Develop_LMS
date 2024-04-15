@@ -47,19 +47,7 @@ from exam.serializers.createcourseserializers import (
 import pandas as pd # type: ignore
 
 class EditCourseInstanceDetailsView(APIView):
-    """
-    View used for editing a course instance.
-    POST request.
-    Should be allowed for only [super admin].
 
-    Table: Course
-        
-    Request Body: {"course_id": id, "title": "New Title", "summary": "New Summary"}
-
-    If course.deleted_at != null: not allowed to go further
-    If request.title and request.summary != null (not empty), update the course instance
-    If course.active == True: create an instance in the notification table with the latest message from the activitylog table and the course in the URL
-    """
     def post(self, request, format=None):
         try:
             course_id = request.data.get('course_id')
@@ -90,46 +78,15 @@ class EditCourseInstanceDetailsView(APIView):
                 return Response({"message": "Course instance updated successfully"}, status=status.HTTP_200_OK)
             else:
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
         except (ValidationError, Course.DoesNotExist) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    """
-    TESTING RESULT:
-    REQUEST BODY:{ 
-    "course_id":4,
-    "title": "Node_New",
-    "summary":"Snake"
-}
-    RESPONSE BODY:
-   {
-    "message": "Course instance updated successfully",
-    "notification": {
-        "message": "The course 'Node_New' has been updated.",
-        "created_at": "2024-04-09T08:01:51.413877Z"
-    }
-}  
-    """    
-        
-# TODO this one        
+
 class NotificationBasedOnCourseDisplayView(APIView):
-    """
-        view to get and display the notification instances filtered for each course
-        triggered by GET request
-        
-        table : Notification
-        
-        url : course_id
-        
-        if courseenrollment.created_at for user in request for course in url is older than notification instance created_at for that course is true:
-        display all of the instances of notification filtered for course
-        instance data to display :
-                message
-                created_at
-        else : 
-            return no instance , just message - no notification yet.
-    """
-# TODO : THE FUNCTIONALITY TO ENABLE THE VIEW OF NOTIFICATIONS, IF NOTIFICATION FOR THAT COURSES ARE NEWER THE ENROLLMENT DATE OF COURSE ENROLLMENT, THEN REFLECT IN NOTIFICATION FOLDER OF USER
+    
+    # TODO : THE FUNCTIONALITY TO ENABLE THE VIEW OF NOTIFICATIONS, IF NOTIFICATION FOR THAT COURSES ARE NEWER THE ENROLLMENT DATE OF COURSE ENROLLMENT, THEN REFLECT IN NOTIFICATION FOLDER OF USER
     def get(self, request, course_id, format=None):
         try:
             # Get the course enrollment date for the current user
@@ -150,224 +107,18 @@ class NotificationBasedOnCourseDisplayView(APIView):
                     return Response({"message": "No new notifications for this course yet."}, status=status.HTTP_200_OK)
             else:
                 return Response({"message": "No notifications for this course yet."}, status=status.HTTP_200_OK)
-        except CourseEnrollment.DoesNotExist:
-            return Response({"error": "User is not enrolled in this course."}, status=status.HTTP_404_NOT_FOUND)
-        except Notification.DoesNotExist:
-            return Response({"error": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        except (CourseEnrollment.DoesNotExist, Notification.DoesNotExist) as e:
+            if isinstance(e, CourseEnrollment.DoesNotExist):
+                return Response({"error": "User is not enrolled in this course."}, status=status.HTTP_404_NOT_FOUND)
+            elif isinstance(e, Notification.DoesNotExist):
+                return Response({"error": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
+        
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class EditReadingMaterialInstanceView(APIView):
-    """
-        view to used for editing a reading_material instance.
-        POST request
-        should be allowed for only [super admin].
-
-        table : Course
-        
-        url : course_id, reading_material_id
-        
-        table : Course, UploadReadingMaterial, CourseStructure
-        
-        if course.active == True -> not allowed
-        if course.active == False :
-                        if course.original_course is null :
-                            while editing instance of reading_material:
-                                title = request.title (only if request.title != null)
-                                reading_content = request.reading_content (only if request.reading_content != null)
-                                updated_at = timezone.now()
-            and instance is saved again and editing
-                    if course.original_course is not null :
-                        while editing instance :
-                                if reading_material in url is related with courses other than that in url :
-                                    create new instance of reading_material using data of instance of reading_material in url for course for in url
-                                        while creating instance :
-                                                    title = request body
-                                                    courses = id in url
-                                                    reading_content = request body
-                                                    uploaded_at = updated_at = models.DateTimeField(auto_now=True, auto_now_add=False, null=True)                                            
-                                            and instance is saved 
-                                            and in CourseStructure table, do editing , for content id as reading_material id , and content_type as reading for course in url change the reading_material id to id of new reading_material's instance's id.
-                                if reading_material in url is only in relation with course in url :
-                                    while editing instance of reading_material:
-                                        title = request.title (only if request.title != null)
-                                        reading_content = request.reading_content (only if request.reading_content != null)
-                                        updated_at = timezone.now()
-                    and instance is saved again and editing
-    """
-    def post(self, request, course_id, reading_material_id, format=None):
-        try:
-            # Get the reading material instance
-            reading_material = UploadReadingMaterial.objects.get(pk=reading_material_id)
-
-            # Check if the associated course is active
-            if reading_material.courses.filter(pk=course_id, active=True).exists():
-                return Response({"error": "Cannot edit reading material. Course is active."},
-                                status=status.HTTP_403_FORBIDDEN)
-
-            # Check if title and reading_content are provided in the request
-            title = request.data.get('title')
-            reading_content = request.data.get('reading_content')
-            if title is None and reading_content is None:
-                return Response({"error": "At least one of title or reading_content is required."},
-                                status=status.HTTP_400_BAD_REQUEST)
-
-            # Update the reading material instance
-            if title is not None:
-                reading_material.title = title
-            if reading_content is not None:
-                reading_material.reading_content = reading_content
-            reading_material.updated_at = timezone.now()
-            reading_material.save()
-
-            serializer = UploadReadingMaterialSerializer(reading_material)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-
-        except UploadReadingMaterial.DoesNotExist:
-            return Response({"error": "Reading material not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-    """
-        RESULT:
-        REQUEST BODY:
-        {
-    "title": "introduction",
-    "reading_content": "Reading material is updated"
-    }
-        RESPONSE BODY:
-        {
-    "id": 1,
-    "title": "introduction",
-    "reading_content": "Reading material is updated",
-    "uploaded_at": "2024-04-06T08:31:56.360377Z",
-    "updated_at": "2024-04-06T08:48:36.770432Z",
-    "deleted_at": null,
-    "active": true,
-    "courses": [
-        1
-    ]
-}
-    """
-
-
-
-class EditQuizInstanceView(APIView):
-    """
-        view to used for editing a quiz instance.
-        POST request
-        should be allowed for only [super admin].
-
-        table : Course
-        
-        url : course_id, quiz_id
-        
-        table : Course, Quiz, CourseStructure
-        
-        if course.active == True -> not allowed
-        if course.active == False :
-                        if course.original_course is null :
-                            while editing instance of quiz:
-                                title = request.title (only if request.title != null)
-                                description = request body
-                                answers_at_end = request body
-                                exam_paper = t/f from request body
-                                pass_mark = request body
-                                updated_at = timezone.now()
-            and instance is saved again and editing
-                    if course.original_course is not null :
-                        while editing instance :
-                                if quiz in url is related with courses other than that in url :
-                                        return response message -- editing not allowed without manual confirmation[handle with dialogue box and ask for confirmation]
-                                if quiz in url is only in relation with course in url :
-                                    while editing instance of quiz:
-                                        title = request.title (only if request.title != null)
-                                        description = request body
-                                        answers_at_end = request body
-                                        exam_paper = t/f from request body
-                                        pass_mark = request body
-                                        updated_at = timezone.now()
-                    and instance is saved again and editing
-    """
-    def post(self, request, course_id, quiz_id, format=None):
-        try:
-            # Check if course exists
-            course = Course.objects.get(pk=course_id)
-            if course.active:
-                return Response({"error": "Editing is not allowed for active courses."},
-                                status=status.HTTP_403_FORBIDDEN)
-
-            # Check if quiz exists
-            quiz = Quiz.objects.get(pk=quiz_id)
-            if quiz not in course.quizzes.all():
-                return Response({"error": "Quiz not found for the specified course."},
-                                status=status.HTTP_404_NOT_FOUND)
-
-            # Update quiz instance
-            serializer = EditQuizInstanceSerializer(quiz, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            else:
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        except Course.DoesNotExist:
-            return Response({"error": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Quiz.DoesNotExist:
-            return Response({"error": "Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-    """
-    RESULT:
-    REQUEST BODY:{
-    "title": "updated Title",
-    "description": "Your Quiz Description",
-    "answers_at_end": true,
-    "exam_paper": false,
-    "pass_mark": 50
-}
-    RESPONSE BODY:{
-    "title": "updated Title",
-    "description": "Your Quiz Description",
-    "answers_at_end": true,
-    "exam_paper": false,
-    "pass_mark": 50
-}
-    
-    """    
-
-# error 
+# TODO CHECK 
 class EditingQuizInstanceOnConfirmation(APIView):
-    """
-        view for post
-        url : quiz_id, course_id
-            ask if the changes should be allowed in quiz to be reflected in all other courses to which are related ?
-        if in request confirmation = true :
-                                while editing instance of quiz:
-                                title = request.title (only if request.title != null)
-                                description = request body
-                                answers_at_end = request body
-                                exam_paper = t/f from request body
-                                pass_mark = request body
-                                updated_at = timezone.now()
-            and instance is saved again and editing
-        if in request confirmation = false :
-                    while creating instance :
-                    courses = id in url
-                    title = request body
-                    slug = auto generated by pre_save
-                    description = request body
-                    answers_at_end = request body
-                    exam_paper = t/f from request body
-                    pass_mark = request body
-                    created_at = updated_at = models.DateField(auto_now=True)
-                    active = False by default
-            and instance is saved
-            and in CourseStructure table, 
-                    do editing , for content id as quiz id , and content_type as quiz for course in url change the quiz id to id of new quiz's instance's id.
-    """
     def post(self, request, course_id, quiz_id, format=None):
         try:
             serializer = EditingQuizInstanceOnConfirmationSerializer(data=request.data)
@@ -408,115 +159,16 @@ class EditingQuizInstanceOnConfirmation(APIView):
 
                 return Response({"message": "New quiz instance created successfully."}, status=status.HTTP_201_CREATED)
         
-        except Quiz.DoesNotExist:
-            return Response({"error": "Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-class EditQuestionInstanceView(APIView):
-    """
-        view to used for editing a question instance.
-        POST request
-        should be allowed for only [super admin].
-
-        table : Course
-        
-        url : course_id, quiz_id, question_id
-        
-        table : Course, Quiz, CourseStructure, Question
-        
-        if course.active == True -> not allowed
-        if course.active == False :
-                        if course.original_course is null :
-                            while editing instance of question:
-                                figure = request body
-                                content = request body (only if request.content != null)
-                                explanation = request body
-                                choice_order = request body
-                                updated_at = timezone.now()
-            and instance is saved again and editing
-                    if course.original_course is not null :
-                        while editing instance :
-                                if question in url is related with quiz other than that in url :
-                                        return response message -- editing not allowed without manual confirmation[handle with dialogue box and ask for confirmation]
-                                if question in url is only in relation with quiz in url :
-                                    while editing instance of question:
-                                        figure = request body
-                                        content = request body (only if request.content != null)
-                                        explanation = request body
-                                        choice_order = request body
-                                        updated_at = timezone.now()
-                    and instance is saved again and editing
-    """
-    def post(self, request, course_id, quiz_id, question_id, format=None):
-        try:
-            # Check if course exists
-            course = Course.objects.get(pk=course_id)
-            if course.active:
-                return Response({"error": "Editing is not allowed for active courses."},
-                                status=status.HTTP_403_FORBIDDEN)
-
-            # Check if quiz exists
-            quiz = Quiz.objects.get(pk=quiz_id)
-            if course not in quiz.courses.all():
-                return Response({"error": "Quiz not found for the specified course."},
-                                status=status.HTTP_404_NOT_FOUND)
-
-            # Check if question exists
-            question = Question.objects.get(pk=question_id)
-            if quiz not in question.quizzes.all():
-                return Response({"error": "Question not found for the specified quiz."},
-                                status=status.HTTP_404_NOT_FOUND)
-
-            # Update question instance
-            serializer = EditQuestionInstanceSerializer(question, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
+        except (Quiz.DoesNotExist, Exception) as e:
+            if isinstance(e, Quiz.DoesNotExist):
+                return Response({"error": "Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
             else:
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        except Course.DoesNotExist:
-            return Response({"error": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Quiz.DoesNotExist:
-            return Response({"error": "Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Question.DoesNotExist:
-            return Response({"error": "Question not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-    """
-    REQUEST BODY:
-    {
-    "content": "what is dfa",
-    "explanation": "true or false"
-}
-   RESPONSE BODY:
-   {
-    "figure": null,
-    "content": "what is dfa",
-    "explanation": "true or false",
-    "choice_order": "random"
-}     
-    """
+
+
         
 class EditingQuestionInstanceOnConfirmation(APIView):
-    """
-        view for post
-        url : quiz_id, course_id
-            ask if the changes should be allowed in quiz to be reflected in all other quizzes to which are related ?
-        if in request confirmation = true :
-                while editing instance of question:
-                                        figure = request body
-                                        content = request body (only if request.content != null)
-                                        explanation = request body
-                                        choice_order = request body
-                                        updated_at = timezone.now()
-            and instance is saved again and editing
-        if in request confirmation = false :
-                while creating instance of question -> do not allow to update the question then , 
-                                                        and suggest to make new one, after deleting this from this quiz.
-    """
     def post(self, request, course_id, quiz_id, format=None):
         try:
             serializer = EditingQuestionInstanceOnConfirmationSerializer(data=request.data)
@@ -543,25 +195,13 @@ class EditingQuestionInstanceOnConfirmation(APIView):
                 return Response({"message": "You chose not to update existing questions. Please create new ones instead."},
                                 status=status.HTTP_400_BAD_REQUEST)
         
-        except Quiz.DoesNotExist:
-            return Response({"error": "Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-    """
-        REQUEST BODY:
-        {
-    "confirmation": true,
-    "content": "Your updated question content",
-    "explanation": "Your updated explanation",
-    "choice_order": "random"
-}
-RESPONSE:
-{
-    "message": "Question instances updated successfully."
-}
-        
-    """
+        except (Quiz.DoesNotExist, Exception) as e:
+            if isinstance(e, Quiz.DoesNotExist):
+                return Response({"error": "Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
+            else:
+                return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 
 
 # ====================================================

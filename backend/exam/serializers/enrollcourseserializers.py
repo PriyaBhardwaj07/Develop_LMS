@@ -36,28 +36,22 @@ class UserSerializer(serializers.ModelSerializer):
         return data 
 
 
-class CourseEnrollmentSerializer(serializers.ModelSerializer):
-    """
-    Serializer for displaying records in CourseRegisterRecord model.
-    """
-    customer = serializers.CharField(source='customer.name', read_only=True)
-    course = serializers.CharField(source='course.title', read_only=True)
-    created_at = serializers.SerializerMethodField()  # Custom method to format created_at
-
-    def get_created_at(self, obj):
-        return obj.created_at.strftime("%Y-%m-%d") 
+class CourseEnrollmentSerializer(serializers.Serializer):
+    course_ids = serializers.ListField(child=serializers.IntegerField())
+    user_ids = serializers.ListField(child=serializers.IntegerField())
 
     def validate(self, data):
-        # Field Existence and Null Field Handling
-        required_fields = ['customer', 'course', 'active']  
-        for field in required_fields:
-            if field not in data or data[field] is None:
-                raise serializers.ValidationError(f"{field} is required")
-        return data
+        course_ids = data.get("course_ids")
+        user_ids = data.get("user_ids")
 
-    class Meta:
-        model = CourseEnrollment
-        fields = ['customer', 'course', 'created_at', 'active']  
+        if not course_ids:
+            raise serializers.ValidationError("Course IDs are missing.")
+        if not user_ids:
+            raise serializers.ValidationError("User IDs are missing.")
+
+        # You can add more custom validations here if needed
+
+        return data  
          
 class DisplayCourseEnrollmentSerializer(serializers.ModelSerializer):
     user_first_name = serializers.SerializerMethodField()

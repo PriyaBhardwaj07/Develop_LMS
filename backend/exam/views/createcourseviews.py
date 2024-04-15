@@ -21,7 +21,6 @@ from exam.models.allmodels import (
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, render, redirect
 from django.utils.decorators import method_decorator
-# from exam.models.coremodels import *
 from exam.serializers.createcourseserializers import (
     ActivateCourseSerializer,
     CourseSerializer, 
@@ -37,7 +36,7 @@ from exam.serializers.createcourseserializers import (
     CreateQuizSerializer,
     CreateQuestionSerializer,
 )
-import pandas as pd
+import pandas as pd # type: ignore
 
 class CreateCourseView(APIView):
     """
