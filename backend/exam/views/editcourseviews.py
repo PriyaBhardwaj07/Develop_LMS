@@ -165,9 +165,7 @@ class EditingQuizInstanceOnConfirmation(APIView):
             else:
                 return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-
-        
+   
 class EditingQuestionInstanceOnConfirmation(APIView):
     def post(self, request, course_id, quiz_id, format=None):
         try:
